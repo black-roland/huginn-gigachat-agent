@@ -11,7 +11,7 @@ module Agents
 
     can_dry_run!
     no_bulk_receive!
-    default_schedule 'every_1h'
+    default_schedule 'never'
 
     description <<~MD
       GigaChat Agent предоставляет интеграцию с языковыми моделями GigaChat от Сбера через Huginn.
@@ -58,10 +58,10 @@ module Agents
       {
         'credentials' => '',
         'scope' => 'GIGACHAT_API_PERS',
-        'model' => 'GigaChat',
+        'model' => 'GigaChat-Max',
         'system_prompt' => 'Выдели основные мысли из статьи.',
         'user_prompt' => '{{message}}',
-        'temperature' => 0.1,
+        'temperature' => 0.3,
         'max_tokens' => 2000,
         'expected_receive_period_in_days' => '2'
       }
