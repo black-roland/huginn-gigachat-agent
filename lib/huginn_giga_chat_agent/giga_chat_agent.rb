@@ -20,7 +20,6 @@ module Agents
       `credentials`: Ключ авторизации для GigaChat API (обязательно)<br>
       `scope`: Версия API ('GIGACHAT_API_PERS', 'GIGACHAT_API_B2B' или 'GIGACHAT_API_CORP')<br>
       `model`: Название модели (по умолчанию 'GigaChat')<br>
-      `verify_ssl`: Проверять HTTPS-сертификаты (по умолчанию 'true')<br>
 
       ### Настройки генерации
       `system_prompt`: Системный промпт (по умолчанию 'Выдели основные мысли из статьи.')<br>
@@ -49,7 +48,6 @@ module Agents
     form_configurable :credentials, type: :string
     form_configurable :scope, type: :array, values: ['GIGACHAT_API_PERS', 'GIGACHAT_API_B2B', 'GIGACHAT_API_CORP']
     form_configurable :model, type: :string
-    form_configurable :verify_ssl, type: :boolean
     form_configurable :system_prompt, type: :text
     form_configurable :user_prompt, type: :text
     form_configurable :temperature, type: :number
@@ -61,7 +59,6 @@ module Agents
         'credentials' => '',
         'scope' => 'GIGACHAT_API_PERS',
         'model' => 'GigaChat',
-        'verify_ssl' => 'true',
         'system_prompt' => 'Выдели основные мысли из статьи.',
         'user_prompt' => '{{message}}',
         'temperature' => 0.1,
@@ -118,7 +115,7 @@ module Agents
         end
       end
     rescue => e
-      error "Ошибка обработки события: #{e.message}"
+      error "Ошибка обработки события: #{e.message}\n#{e.backtrace.join("\n")}"
     end
 
     def get_access_token
@@ -165,10 +162,70 @@ module Agents
       ) do |req|
         req.options[:open_timeout] = 5
         req.options[:timeout] = 30
-        req.options[:verify_ssl] = boolify(interpolated['verify_ssl'])
       end
 
       response.success? ? JSON.parse(response.body) : nil
+    end
+
+    def faraday
+      ca_file = File.join(File.dirname(__FILE__), '..', '..', 'certs', 'russian_trusted_root_ca.cer')
+      unless File.exist?(ca_file)
+        error "Файл сертификата russian_trusted_root_ca.cer не найден в репозитории"
+        return super
+      end
+
+      faraday_options = {
+        ssl: {
+          verify: true,
+          ca_file: ca_file
+        }
+      }
+
+      @faraday ||= Faraday.new(faraday_options) { |builder|
+        if parse_body?
+          builder.response :json
+        end
+
+        builder.response :character_encoding,
+                         force_encoding: interpolated['force_encoding'].presence,
+                         default_encoding:,
+                         unzip: interpolated['unzip'].presence
+
+        builder.headers = headers if headers.length > 0
+
+        builder.headers[:user_agent] = user_agent
+
+        builder.proxy = interpolated['proxy'].presence
+
+        unless boolify(interpolated['disable_redirect_follow'])
+          require 'faraday/follow_redirects'
+          builder.response :follow_redirects
+        end
+
+        builder.request :multipart
+        builder.request :url_encoded
+
+        if boolify(interpolated['disable_url_encoding'])
+          builder.options.params_encoder = DoNotEncoder
+        end
+
+        builder.options.timeout = (Delayed::Worker.max_run_time.seconds - 2).to_i
+
+        if userinfo = basic_auth_credentials
+          builder.request :authorization, :basic, *userinfo
+        end
+
+        builder.request :gzip
+
+        case backend = faraday_backend
+        when :typhoeus
+          require "faraday/#{backend}"
+          builder.adapter backend, accept_encoding: nil
+        when :httpclient, :em_http
+          require "faraday/#{backend}"
+          builder.adapter backend
+        end
+      }
     end
 
     def create_completion_event(original_payload, response)
