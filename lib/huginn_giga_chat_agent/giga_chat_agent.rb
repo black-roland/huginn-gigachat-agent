@@ -52,7 +52,7 @@ module Agents
     form_configurable :model, type: :string
     form_configurable :system_prompt, type: :text
     form_configurable :user_prompt, type: :text
-    form_configurable :temperature, type: :number
+    form_configurable :temperature, type: :number, html_options: { min: 0, max: 2, step: 0.1 }
     form_configurable :max_tokens, type: :number
     form_configurable :session_id, type: :string
     form_configurable :expected_receive_period_in_days, type: :number, html_options: { min: 1 }
