@@ -26,6 +26,7 @@ module Agents
       `user_prompt`: Пользовательский промпт с поддержкой Liquid (обязательно)<br>
       `temperature`: Креативность ответов (0-2, по умолчанию 0.1)<br>
       `max_tokens`: Максимальное количество токенов (по умолчанию 2000)<br>
+      `session_id`: Необязательный идентификатор сессии для кэширования контекста<br>
     MD
 
     event_description <<~MD
@@ -37,7 +38,8 @@ module Agents
           "usage": {
             "prompt_tokens": 10,
             "completion_tokens": 20,
-            "total_tokens": 30
+            "total_tokens": 30,
+            "precached_prompt_tokens": 5
           },
           "model": "GigaChat"
         }
@@ -52,6 +54,7 @@ module Agents
     form_configurable :user_prompt, type: :text
     form_configurable :temperature, type: :number
     form_configurable :max_tokens, type: :number
+    form_configurable :session_id, type: :string
     form_configurable :expected_receive_period_in_days, type: :number, html_options: { min: 1 }
 
     def default_options
@@ -63,6 +66,7 @@ module Agents
         'user_prompt' => '{{message}}',
         'temperature' => 0.3,
         'max_tokens' => 2000,
+        'session_id' => '',
         'expected_receive_period_in_days' => '2'
       }
     end
@@ -104,7 +108,8 @@ module Agents
           user_prompt: interpolated['user_prompt'],
           temperature: interpolated['temperature'].to_f,
           max_tokens: interpolated['max_tokens'].to_i,
-          token: token
+          token: token,
+          session_id: interpolated['session_id']
         )
 
         if response && response['choices']
@@ -138,7 +143,7 @@ module Agents
       end
     end
 
-    def send_completion_request(system_prompt:, user_prompt:, temperature:, max_tokens:, token:)
+    def send_completion_request(system_prompt:, user_prompt:, temperature:, max_tokens:, token:, session_id:)
       request_body = {
         model: interpolated['model'],
         messages: [
@@ -150,15 +155,19 @@ module Agents
         stream: false
       }
 
+      headers = {
+        'Content-Type' => 'application/json',
+        'Accept' => 'application/json',
+        'Authorization' => "Bearer #{token}",
+        'X-Request-ID' => SecureRandom.uuid
+      }
+
+      headers['X-Session-ID'] = session_id if session_id.present?
+
       response = faraday.post(
         "https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
         request_body.to_json,
-        {
-          'Content-Type' => 'application/json',
-          'Accept' => 'application/json',
-          'Authorization' => "Bearer #{token}",
-          'X-Request-ID' => SecureRandom.uuid
-        }
+        headers
       ) do |req|
         req.options[:open_timeout] = 5
         req.options[:timeout] = 30
@@ -238,7 +247,8 @@ module Agents
         'usage' => {
           'prompt_tokens' => usage['prompt_tokens'],
           'completion_tokens' => usage['completion_tokens'],
-          'total_tokens' => usage['total_tokens']
+          'total_tokens' => usage['total_tokens'],
+          'precached_prompt_tokens' => usage['precached_prompt_tokens'] || 0
         },
         'model' => response['model']
       }
