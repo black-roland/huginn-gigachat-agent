@@ -5,3 +5,4 @@
 require 'huginn_agent'
 
 HuginnAgent.register 'huginn_giga_chat_agent/giga_chat_agent'
+HuginnAgent.register 'huginn_giga_chat_embedding_classifier_agent/giga_chat_embedding_classifier_agent'
